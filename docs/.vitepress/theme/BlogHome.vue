@@ -1,7 +1,14 @@
-
 <script setup lang="ts">
+import { computed } from 'vue'
 import { withBase } from 'vitepress'
 import { data as posts } from '../../posts/posts.data'
+
+// 按日期从新到旧排序，取最新三篇
+
+const recentPosts = computed(() =>
+  posts.slice(-3).reverse()
+)
+
 </script>
 
 <template>
@@ -70,13 +77,14 @@ import { data as posts } from '../../posts/posts.data'
         <span>Latest updates</span>
       </div>
 
-      <div v-if="posts.length" class="recent-list">
+      <div v-if="recentPosts.length" class="recent-list">
         <a
-          v-for="post in posts.slice(0, 3)"
+          v-for="post in recentPosts"
           :key="post.url"
-          :href="post.url"
+          :href="withBase(post.url)"
           class="recent-item"
         >
+
           <div class="recent-content">
             <h3>{{ post.title }}</h3>
             <p>{{ post.description }}</p>
