@@ -762,7 +762,7 @@ optimizer.zero_grad()
 请注意，稍后当我们改用常数归一化（constant）代替序列归一化（sequence）时，微批次代码会略作调整，以适应不同的归一化方式。
 #### Implement the train step
 
-![](\images\CS336_Assignment5\2.png)
+![](\images\CS336_Assignment5\img42.png)
 
 测试出错，不知道问题在哪，先跳过
 ## Experiments
