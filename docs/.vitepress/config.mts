@@ -57,6 +57,10 @@ export default defineConfig({
     }]
   ],
 
+  markdown: {
+    math: true
+  },
+
   themeConfig: {
     siteTitle: "Silverbullet2269's Technical Blog",
 
