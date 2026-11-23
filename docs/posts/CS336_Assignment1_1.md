@@ -4,8 +4,8 @@ date: 2026-11-11
 description: CS336 Assignment1 学习笔记
 ---
 
-# Byte-Pair Encoding (BPE) Tokenizer
-## The Unicode Standard
+## Byte-Pair Encoding (BPE) Tokenizer
+### The Unicode Standard
 Unicode 是将字符映射为整数码点 (integer code point) 的文本编码标准。
 
 `ord(): character -> integer code point`
@@ -15,7 +15,7 @@ Unicode 是将字符映射为整数码点 (integer code point) 的文本编码�
 如图所示，汉字 “牛” 对应的 unicode 编码为 29275，一般记为 U+725B，U+为常规前缀，725B 为 29275 的十六进制表示。
 ![](\images\CS336_Assignment1\img1.png)
 
-## Unicode Encodings
+### Unicode Encodings
 使用 Unicode code points 来直接训练 tokenizers 是不切实际的，因为词汇量会很大（约 150k 个物品）而且非常稀疏（类似生僻字，基本不出现）。所以使用 unicode encoding，将 unicode character 进一步转换为一串字节。Unicode 标准本身定义了三种编码：UTF-8、UTF-16 和 UTF-32。
 ```
 encode("utf-8"): unicode string -> UTF-8 byte string
@@ -32,18 +32,18 @@ decode("utf-8"): UTF-8 byte string -> unicode string
 
 ![](\images\CS336_Assignment1\img4.png)
 
-## Subword Tokenization
+### Subword Tokenization
 Byte-level tokenization 解决了 word-level tokenizer 容易遇到的词表外（out-of-vocabulary）问题，因为任何文本都可以被表示成 UTF-8 字节序列。然而，它也带来了输入序列过长的问题。例如，一个包含 10 个单词的句子，在 word-level tokenizer 中可能只需要约 10 个 token，而使用 byte-level tokenizer 时可能需要 50 个甚至更多 token，具体取决于文本的字节长度。更长的序列不仅会增加模型的计算开销，还会在数据中形成更长程的依赖（long-term dependencies）：模型往往需要跨越更多 byte token，才能组合出完整的字符、子词、单词乃至更高层次的语言结构，因此语言建模会更加困难。
 Subword tokenization 是 word-level 与 byte-level tokenization 之间的一种折中方案。它仍然保留 byte token 作为最基本的表示单位，但会把训练语料中频繁共同出现的 token 序列逐渐合并成更大的 token。例如，原本 "t"、"h"、"e" 是三个独立的 byte token，如果它们经常连续出现，BPE 可能先将 "t" 和 "h" 合并为 "th"，再进一步将 "th" 和 "e" 合并为 "the"。之后 "the" 就可以用一个 token 表示，从而缩短输入序列。BPE（Byte-Pair Encoding）就是通过不断合并当前最频繁的相邻 token 对，逐步构建这些 subword token 和最终词表的方法
-## BPE Tokenizer Training
+### BPE Tokenizer Training
 BPE tokenizer训练过程主要包括三个步骤：
-### Vocabulary initialization
+#### Vocabulary initialization
 词汇表是 bytestring token 与整数 ID 之间的一对一映射关系，所以 byte-level BPE tokenizer 的初始词汇表是所有字节的集合，1 byte = 8 bits，有 256 种可能，所以初始词汇表的大小为 256。例如：
 ```
 b"A" → 65
 b"B" → 66
 ```
-### Pre-tokenization
+#### Pre-tokenization
 理论上可以在整个语料库的 byte 序列上统计相邻字节出现的频率并对频率最高的字节进行合并，为什么需要 pre-tokenization？
 - 计算成本太高：每次合并都需要扫描一次语料库。
 - 不合理合并：直接合并可能导致产生仅在标点符号上有区别的 token，例如 dog 与 dogs!。
@@ -61,7 +61,7 @@ b"B" → 66
 
 ![](\images\CS336_Assignment1\img6.png)
 
-### Compute BPE merges
+#### Compute BPE merges
 
 1. 统计每个 pre-token 内部所有相邻 token pair 的频率
 2. 找到出现频率最高的 pair，如 (A, B)
@@ -75,7 +75,7 @@ b"B" → 66
 
 ![](\images\CS336_Assignment1\img7.png)
 
-### Special tokens
+#### Special tokens
 special token 用于表示元信息，例如：
 ```
 <|endoftext|>可以表示文档或序列结束。
@@ -85,7 +85,7 @@ special token 必须始终作为一个完整 token，不能被 BPE 拆分。
 special token 需要直接加入 vocabulary，并拥有固定 token ID。
 
 special token 不是通过 BPE frequency merge 学出来的，而是人为指定的。
-### Example : BPE training example
+#### Example : BPE training example
 
 在后面作业中要求 vocab 类型为 dict[int, bytes]，这里按照自己思路设为了 dict[bytes, int]，但总体思路不变。
 
@@ -94,21 +94,21 @@ special token 不是通过 BPE frequency merge 学出来的，而是人为指定
 ![](\images\CS336_Assignment1\img9.png)
 
 ![](\images\CS336_Assignment1\img10.png)
-## Experimenting with BPE Tokenizer Training
+### Experimenting with BPE Tokenizer Training
 目标：在 TinyStories 的数据集上训练一个字节级的 BPE 分词器。
-### Parallelizing pre-tokenization
+#### Parallelizing pre-tokenization
 例子：file_size=800 bytes，desired_num_chunks=4
 
 ![](\images\CS336_Assignment1\img11.png)
 
 ![](\images\CS336_Assignment1\img12.png)
 
-### Removing special tokens before pre-tokenization
+#### Removing special tokens before pre-tokenization
 在 BPE训练前进行预分词时，必须先将语料按 special token分割成独立文档，然后分别对每个文档进行预分词，这样做的目的是防止不同文档的文本在文档边界处发生跨文档合并，例如语料 `[Doc 1]<|endoftext|>[Doc 2]` 必须分割为 `[Doc 1]` 和 `[Doc 2]` 分别处理，确保 `Doc 1` 末尾的字符永远不会与 `Doc 2` 开头的字符被误认为相邻而统计到一起；同时 special token 本身（如 `<|endoftext|>`）应从文本中移除，不参与词频统计，因为它们只是控制分隔符而非真正的语言内容。实现时需使用 `re.split` 配合 `re.escape` 构建分割模式，例如 `pattern = "|".join(re.escape(tok) for tok in special_tokens)`，这样可以正确处理包含 `|` 等正则特殊字符的令牌。最后，`test_train_bpe_special_tokens` 测试将验证你是否正确实现了这一逻辑。
 
 解释 `pattern = "|".join(re.escape(tok) for tok in special_tokens)`：
 - re.escape 是将 special token 中的特殊符号进行转义，例如 `<|endoftext|>`中的 `'|'`，然后 "|".join() 是将转义后的 special tokens 使用或 ('|') 连接起来。
-### Optimizing the merging step
+#### Optimizing the merging step
 上面示例中朴素的 BPE 训练实现之所以很慢，是因为在每次合并时，它都会遍历所有的字节对，以找出频率最高的那一对。然而，每次合并后，只有与被合并的字节对重叠的那些字节对的计数会发生变化。因此，可以通过索引所有字节对的计数并增量更新这些计数来提高 BPE 训练速度，而不是显式地遍历每个字节对来计算频率。通过这种缓存机制，你可以获得显著的性能提升，尽管我们需要注意的是，BPE 训练的合并部分在 Python 中无法并行化。
 
 
@@ -116,7 +116,7 @@ special token 不是通过 BPE frequency merge 学出来的，而是人为指定
 > - 性能分析 (Profiling)：使用 profiling 工具（例如 cProfile 或 py-spy）精确定位耗时最多的代码，集中精力优化真正的瓶颈
 > - ”降级“ (Downscaling)：避免直接使用完整数据集（如TinyStories的212万篇文档），而是先在经过精心挑选的小规模调试集（如仅包含2.2万篇文档的验证集）上运行，确保该调试集既能暴露与完整配置相同的性能瓶颈（如词频统计或合并更新），又能将单次运行时间控制在短时间内以支持快速迭代，待逻辑与性能验证无误后再切换至完整数据进行最终训练。
 
-### Code
+#### Code
 ![](\images\CS336_Assignment1\img13.png)
 
 在开始之前，先再次强调代码中涉及的数据类型的变化
@@ -224,7 +224,7 @@ bpe_train_v5：继续改进，v4 每轮选择 `best_pair` 时，都需要遍历�
 
 ![](\images\CS336_Assignment1\img28.png)
 
-## BPE Tokenizer: Encoding and Decoding
+### BPE Tokenizer: Encoding and Decoding
 
 ![](\images\CS336_Assignment1\img29.png)
 

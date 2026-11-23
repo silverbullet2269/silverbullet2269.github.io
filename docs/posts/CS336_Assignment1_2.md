@@ -4,13 +4,13 @@ date: 2026-11-11
 description: CS336 Assignment1 学习笔记
 ---
 
-# Transformer Language Model Architecture
-## Transformer LM
+## Transformer Language Model Architecture
+### Transformer LM
 给定一串 token ID，模型先把这些离散的数字编号转换成连续的向量表示，然后经过多层 Transformer Blocks 进行上下文信息处理，最后再把处理后的向量转换成对词表中每个 token 的预测分数（logits），用来预测下一个 token。
 
 ![](\images\CS336_Assignment1\img32.png)
 
-### Token Embeddings
+#### Token Embeddings
 Transformer 不能直接处理离散的 Token ID，因此首先使用 Token Embedding Layer，把每个 Token ID 转换成一个连续的高维向量。每个嵌入层接收一个形状为 (batch_size, sequence_length) 的整数张量，并输出一个形状为 (batch_size, sequence_length, d_model) 的向量序列。
 
 假设我们要用 Transformer 同时处理 两句话：
@@ -72,7 +72,7 @@ $$
 \rightarrow
 (batch\_size,\ sequence\_length,\ d_{\text{model}})
 $$
-### Pre-norm Transformer Block
+#### Pre-norm Transformer Block
 嵌入之后，激活值会经过多个结构相同的神经网络层进行处理。一个标准的decoder-only Transformer语言模型由 num_layers 个相同的层（通常称为Transformer“块”）组成。
 
 每个Transformer块接收一个形状为 (batch_size, sequence_length, d_model) 的输入，并输出一个相同形状的张量 (batch_size, sequence_length, d_model)。每个块通过自注意力机制在序列中聚合信息，并通过前馈网络层对其进行非线性变换。
@@ -90,7 +90,7 @@ $$
 本文实现的是 Pre-norm Transformer Block。由于采用 pre-norm 结构，在最后一个 Transformer Block 之后还需要额外进行一次层归一化，Layer Normalization，使最终输出保持合适的数值尺度。
 
 最后，使用一个可学习的线性变换（LM Head），把 Transformer 的最终输出映射到整个词表，得到 next-token logits。
-## Remark: Batching, Einsum and Efficient Computation
+### Remark: Batching, Einsum and Efficient Computation
 这部分主要解决如何在 transfomer 中进行相对高效的计算。
 
 首先了解 "batch-like dimensions" 的概念，batch-like dimensions 是“独立实例索引维度”。这些维度的大小决定了有多少个互相独立的样本/实例/并行任务；算子在语义上会对每个实例独立地做同样的操作。具体例子如下：
@@ -428,7 +428,7 @@ $64\times10=640$
 
 ## Basic Building Blocks: Linear and Embedding Modules
 
-### Parameter Initialization
+#### Parameter Initialization
 在训练神经网络时，初始化模型参数是十分重要的，因为不恰当的初始化会导致梯度爆炸或梯度消失等情况，我们采取以下初始化规则：
 ![](\images\CS336_Assignment1\img35.png)
 
@@ -454,7 +454,7 @@ $$
 
 在使用 PyTorch 默认的行优先（row-major）内存布局实现时，若直接进行矩阵乘法需注意转置问题；使用 `einsum` 可避免此类问题。
 
-### Linear Module
+#### Linear Module
 线性层 (Linear layer) 是 transformer 和一般神经网络的基本构件模块，接下来，我们将实现一个继承自 torch.nn.Module 并执行线性变换的自定义 Linear 类。这里的线性变换为：y = Wx，遵循大多数现代 LLMs，没有偏置项。
 
 ![](\images\CS336_Assignment1\img37.png)
@@ -463,12 +463,12 @@ $$
 
 ![](\images\CS336_Assignment1\img39.png)
 
-### Embedding Module
+#### Embedding Module
 ![](\images\CS336_Assignment1\img40.png)
 
 ![](\images\CS336_Assignment1\img41.png)
 
-### Pre-Norm Transformer Block
+#### Pre-Norm Transformer Block
 每个 Transformer 模块包含两个子层：(1) 多头自注意力机制（Multi-Head Self-Attention）和 $2$ 位置级前馈网络（Position-wise Feed-Forward Network）
 
 在最初 Transformer 论文中，采用的是后归一化（post-norm），即每个子层先残差连接后再进行层归一化，假设模块输入为 x，则后归一化中模块执行如下操作：
@@ -483,14 +483,14 @@ $$
 
 前馈网络子层：$y = x + FFN(RMSNorm(x))$
 
-#### 均方根归一化 （Root Mean Square Layer Normalization）
+##### 均方根归一化 （Root Mean Square Layer Normalization）
 ![](\images\CS336_Assignment1\img42.png)
 
 ![](\images\CS336_Assignment1\img43.png)
 
 ![](\images\CS336_Assignment1\img44.png)
 
-#### Position-Wise Feed-Forward Network 位置级前馈网络
+##### Position-Wise Feed-Forward Network 位置级前馈网络
 ![](\images\CS336_Assignment1\img45.png)
 
 在 transformer 的原始论文中，transformer 前馈网络由两个线性变换组成，两者之间采用 ReLU 激活函数，在这个架构中，内部前馈层的维度通常是输入维度的 4 倍，将神经网络先把输入映射到更高维的特征空间，进行非线性处理，再映射回原始维度。
@@ -512,7 +512,7 @@ $$
 
 ![](\images\CS336_Assignment1\img49.png)
 
-#### Relative Positional Embeddings
+##### Relative Positional Embeddings
 为了将位置信息注入模型，transformer 中采取了旋转位置嵌入（Rotary Positin Embeddings, RoPE）。RoPE的核心思想是根据 token 的位置，对 Query 和 Key 向量进行旋转（不用于 Value 向量），从而将位置信息融入注意力机制。
 
 对于每个位置 $i$ 和 一个 d 维向量 $q^{(i)}$，RoPE 将向量中相邻的两个维度划分为一组，把每组看作二维向量，并根据 token 的位置旋转相应角度。例如，维度为 4 的向量可以划分为 $(q_1,q_2)$ 和 $(q_3,q_4)$ 两组。对于其中一组向量 $(a,b)$，按照题目采用的旋转方向约定，其旋转过程为：
@@ -532,7 +532,7 @@ $\theta_{i,k}=\frac{i}{\Theta^{(2k-2)/d}}, \quad for \quad k \in \{1, ..., d/2\}
 
 ![](\images\CS336_Assignment1\img53.png)
 
-#### Scaled Dot-Product Attention
+##### Scaled Dot-Product Attention
 在学习注意力操作之前，我们学习注意力操作中使用的softmax，定义为
 
 ![](\images\CS336_Assignment1\img54.png)
@@ -555,7 +555,7 @@ $\theta_{i,k}=\frac{i}{\Theta^{(2k-2)/d}}, \quad for \quad k \in \{1, ..., d/2\}
 
 ![](\images\CS336_Assignment1\img60.png)
 
-#### Causal Multi-Head Self-Attention
+##### Causal Multi-Head Self-Attention
 我们将实现 A.Vaswani 等人提出的多头注意力机制，从数学角度来看，定义如下：
 ![](\images\CS336_Assignment1\img61.png)
 
@@ -581,7 +581,7 @@ $\theta_{i,k}=\frac{i}{\Theta^{(2k-2)/d}}, \quad for \quad k \in \{1, ..., d/2\}
 
 ![](\images\CS336_Assignment1\img67.png)
 
-### The Full Transformer LM
+#### The Full Transformer LM
 
 ![](\images\CS336_Assignment1\img68.png)
 
@@ -644,12 +644,12 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img74.png)
 
-# Training a Transformer LM
+## Training a Transformer LM
 接下来将编写所有用于支持训练的代码：
 - Loss: 定义损失函数 （cross-entropy）
 - Optimizer: 定义优化器来最小化损失 （AdamW）
 - Training loop: 所有用于加载数据、保存检查点以及管理训练的辅助基础设施。
-## Cross-entropy loss
+### Cross-entropy loss
 ![](\images\CS336_Assignment1\img75.png)
 
 ![](\images\CS336_Assignment1\img76.png)
@@ -663,12 +663,12 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img80.png)
 
-## The SGD Optimizer
+### The SGD Optimizer
 有了损失函数，接下来是优化器，最简单的基于梯度的优化器是随机梯度下降（SGD），我们从随机初始化的参数 $\theta_0$ 开始。然后对于每一步 $t = 0, ..., T-1$，执行以下更新：
 
 ![](\images\CS336_Assignment1\img81.png)
 
-### Implementing SGD in Pytorch
+#### Implementing SGD in Pytorch
 为了实现优化器，我们将继承 pytorch 的 torch.optim.Optimizer 类，Optimizer 的子类必须实现以下两个方法：
 
 
@@ -682,7 +682,7 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img84.png)
 
-## AdamW
+### AdamW
 现代语言模型通常使用比 SGD 更复杂的优化器进行训练。AdamW 对于每个参数，会维护其一阶和二阶矩的滑动估计值，以额外的内存消耗为代价，换取了更好的训练稳定性和收敛性。
 ![](\images\CS336_Assignment1\img85.png)
 
@@ -692,7 +692,7 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img88.png)
 
-## Learning rate scheduling
+### Learning rate scheduling
 在训练过程中，能使损失值下降最快的学习率值通常会发生变化。在训练 Transformer 模型时，通常会采用学习率调度策略：起初使用较大的学习率，使模型在训练初期进行更快速的更新，然后随着训练的进行，学习率逐渐衰减至较小的值。在本次作业中，我们将实现用于训练LLaMA的余弦退火调度策略 。
 
 调度器本质上是一个函数，它接受当前步骤 t 及其他相关参数（例如初始和最终学习率），并返回在步骤 t 进行梯度更新时应使用的学习率。最简单的调度方案是常数函数，它对于任何 t 都会返回相同的学习率。
@@ -702,7 +702,7 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img91.png)
 
-## Gradient clipping
+### Gradient clipping
 在训练过程中，我们有时会遇到会产生较大梯度的训练样本，这可能会导致训练不稳定。为缓解这一问题，实践中常采用的一种技术是梯度剪切。其原理是在每次反向传播后，在执行优化器步骤之前，对梯度的范数施加限制。
 
 ![](\images\CS336_Assignment1\img92.png)
@@ -713,8 +713,8 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img94.png)
 
-# Training loop
-## Data Loader
+## Training loop
+### Data Loader
 分词后的数据（例如你在 tokenizer_experiments 中准备的数据）是一个单一的令牌序列 x = (x₁, ..., xₙ)。尽管原始数据可能由多个独立的文档组成（例如不同的网页或源代码文件），一种常见的做法是将所有这些文档连接成一个单一的令牌序列，并在它们之间添加一个分隔符（例如 token）。
 
 数据加载器会将这个长序列转换为一批批的数据流，其中每个批次包含 B 个长度为 m 的序列，以及对应的下一个令牌序列（长度也为 m）。例如，当 B = 1，m = 3 时，([x₂, x₃, x₄], [x₃, x₄, x₅]) 就是一个可能的批次。
@@ -725,7 +725,7 @@ transformer 接收的输入是 in_features: Float[Tensor, " batch sequence_lengt
 
 ![](\images\CS336_Assignment1\img96.png)
 
-## Checkpointing
+### Checkpointing
 
 除了加载数据外，我们还需要在训练过程中保存模型。在运行训练任务时，我们常常希望能够在训练中途意外停止后（例如由于任务超时、机器故障等）恢复训练。即使一切顺利，我们也可能希望之后能够访问训练过程中的中间模型（例如，事后研究训练动态、从不同训练阶段的模型中生成样本等）。
 

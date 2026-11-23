@@ -4,11 +4,11 @@ date: 2026-11-11
 description: CS336 Assignment5 学习笔记
 ---
 
-# Introduction
-## Background
+## Introduction
+### Background
 在预训练阶段，模型通过学习大量互联网文本获得广泛的知识和语言能力，但这并不意味着它能够准确地完成特定任务。因此，我们需要通过后训练将基础模型（Base Model）转化为更有帮助、更安全且能够遵循指令的对话模型。其中，指令微调（Instruction Tuning）和对齐（Alignment）主要用于引导模型形成符合要求的行为，而强化学习（Reinforcement Learning）则侧重于提高模型在特定任务上的表现。与预训练使用大量文本并预测下一个 token 不同，强化学习通常使用较少的任务数据，并通过评分函数（Scoring Function）评估模型回答的质量，而不一定需要提供可供模仿的标准答案文本。例如，在编程任务中，可以通过运行测试用例判断代码是否正确；在数学任务中，可以检查模型给出的最终答案是否正确。其基本流程是先从模型中采样回答，再利用评分函数计算奖励（Reward），最后根据奖励信号更新模型参数，使模型更倾向于生成能够获得高奖励的回答。从数学角度来看，强化学习的目标是最大化模型生成回答的期望奖励，从而提高特定任务的准确率。然而，强化学习也面临一些挑战，包括训练速度较慢、训练过程不稳定、不同随机种子可能导致实验结果存在较大差异，以及一些看似细微的实现细节可能显著影响最终表现。因此，这项作业旨在帮助我们从数学原理和实际实验两个角度理解大语言模型强化学习的工作机制及其面临的挑战。
 
-## Model and dataset
+### Model and dataset
 本次作业使用 **OLMo-2-0425-1B** 作为基础模型，该模型拥有约 10 亿个参数，经过预训练和中期训练，总共学习了约 4 万亿个 token。其预训练数据 OLMo-mix-1124 主要由 DCLM-Baseline 构成，中期训练数据 Dolmino-mix-1124 则包含约 50% 的 DCLM 数据，以及指令跟随、数学、代码、STEM 论文和维基百科等数据。
 
 本次作业选择 **GSM8K 数据集** 作为下游任务。GSM8K 是一个包含小学数学应用题的数据集，提供问题、推理过程和最终答案。在强化学习（RL）过程中，模型会生成数学解答，并通过奖励函数评估答案的正确性，再根据奖励信号更新模型参数，使模型逐步学会生成更准确的推理过程，提高数学解题能力。
@@ -18,23 +18,23 @@ description: CS336 Assignment5 学习笔记
 
 选择这一模型与数据集组合的主要原因是计算资源有限。OLMo-2-0425-1B 虽然参数规模较小，但经过了大量 token 的训练，具备一定的数学推理能力，因此适合在有限资源下观察强化学习的效果。**强化学习的效果高度依赖模型能力、数据集难度和训练设置**，因此，本次实验的结果不一定适用于其他模型和任务。
 
-## Notation
+### Notation
 符号表
 ![](\images\CS336_Assignment5\img1.png)
 
 ![](\images\CS336_Assignment5\img2.png)
 
-# Prompting
+## Prompting
 将预训练的 base model 应用于下游任务的第一步是提供 prompt，base models 实在多种行为模式下预训练的，prompting 是一种轻量级的方法，可以引导其行为至 task-solving models。
 
 最基础的 prompt 方法是提供问题，然后从模型的下一个 token 分布中采样生成答案，这种策略叫做 **question_only**。我们将对比这种方法和 **r1_zero** 策略，r1_zero 策略既包含问题也包含指导模型进行“思维链”推理的指令。
 
-## Using vLLM for inference
+### Using vLLM for inference
 要从模型中生成响应，我们需要一个推理引擎。实现推理引擎超出了本次作业的范围，因此我们将使用 vLLM 推理引擎，该引擎实现了多种优化，包括快速的 CUDA 内核、用于高效 KV caching 的 PagedAttention 等。cs336_alignment/vllm_utils.py 文件中已提供了启动 vLLM 服务器并生成文本的代码，其接口如下：
 
 ![](\images\CS336_Assignment5\img3.png)
 
-## Zero-shot, few-shot, and chain-of-thought prompting
+### Zero-shot, few-shot, and chain-of-thought prompting
 除非另有说明，在GSM8K实验中，我们将使用DeepSeek R1-Zero模型中的以下提示词。我们将其称为r1_zero提示词：
 
 ![](\images\CS336_Assignment5\img4.png)
@@ -53,13 +53,13 @@ Few-shot prompting 通过向模型提供少量待解决任务的示例，从而�
 
 ![](\images\CS336_Assignment5\img6.png)
 
-## Grading function
+### Grading function
 模型生成响应后，我们需要检查其正确性。我们的数学题包含标准答案（例如 0.5），但模型可以通过多种方式给出正确答案：例如，它可以回答 $<answer> 1/2 </answer>$ 或 “The answer is 0.5”。因此，为了正确评分模型的输出结果，我们需要一个答案解析函数：该函数以模型的输出和已知的真实答案作为输入，并返回一个布尔值，用于指示模型的输出是否正确。
 
 实验采用近期推理强化学习研究中使用的一种快速且准确率较高的答案解析器，根据不同的提示词格式选择不同的奖励函数：如果使用 r1_zero prompt，也就是要求模型使用 `<think>` 和 `<answer>` 标签组织推理过程和最终答案，就使用 cs336_alignment.drgrpo_grader.r1_zero_reward_fn；如果使用 question_only prompt，由于它不要求模型使用这些标签，因此应使用 cs336_alignment.drgrpo_grader.question_only_reward_fn，该函数会寻找最终答案中的 \boxed{} 标记。例如，模型可以将最终答案写成 \boxed{12}，供解析器提取并判断是否正确。这些奖励函数会返回总奖励（Total Reward）、格式奖励（Format Reward）和答案奖励（Answer Reward）：格式奖励用于判断回答是否符合预期格式，答案奖励用于判断解析出的答案是否正确。有些研究会给格式正确但答案错误的回答一定的部分奖励（Partial Credit），但本次作业不采用这种方式，总奖励只由答案正确性决定，格式奖励仅用于日志记录和分析，不参与奖励优化。因此，即使模型严格遵守格式，只要最终答案错误，就不会因为格式正确而获得额外奖励。
 
 请注意，这些奖励函数要求 ground_truth 参数仅包含答案。要从 GSM8K 数据集中的 ground truth 响应（其格式为 {rationale} #### {answer}）中提取答案，应以 #### 为分隔符进行拆分，并去除空格。
-## Experiments
+### Experiments
 Generation hyperparameters：当生成回复时，使用 temperature 1.0，top-p 1.0，max generation length 512 进行采样。r1_zero 提示词会要求模型在回答结尾添加字符串 `</answer>`，因此在使用这些提示词时，我们可以指示 vLLM 在模型输出该字符串时停止
 
 ![](\images\CS336_Assignment5\img7.png)
@@ -67,16 +67,16 @@ Generation hyperparameters：当生成回复时，使用 temperature 1.0，top-p
 ![](\images\CS336_Assignment5\img8.png)
 
 ==缺少实验代码，之后补上==
-# Group Relative Policy Optimization
+## Group Relative Policy Optimization
 既然我们已经通过 prompt 评估了模型的性能，下一步就是通过训练来提升这一性能。具体来说，我们要优化模型的准确率，或者说，优化其预期奖励：
 
 ![](\images\CS336_Assignment5\img9.png)
 
 ![](\images\CS336_Assignment5\img10.png)
 
-## Deriving on-policy GRPO
+### Deriving on-policy GRPO
 我们将首先探究 RL 背后的数学原理，逐步引出 GRPO (Group Relative Policy Optimization) 算法。
-### Language models as policies
+#### Language models as policies
 
 首先介绍一下传统的强化学习 RL，强化学习的核心目标是：通过与环境交互，学习一个能够获得更高累积奖励的策略（Policy）。
 在传统强化学习中，智能体（Agent）会不断观察当前状态、选择动作、获得奖励，并进入下一个状态。这个过程可以表示为：
@@ -182,7 +182,7 @@ $$
 - 序列概率更容易计算。 一个回答包含很多 Token，整个序列的概率是每一步条件概率的乘积，对数可以将乘积转换成求和。
 - 数值计算更稳定。 很长的 Token 序列，其联合概率可能非常小；使用对数通常更容易处理。
 
-### Trajectories
+#### Trajectories
 语言模型每生成一个 Token，就相当于智能体执行一次动作；从输入 Prompt 开始，到生成结束为止，所有状态和动作连起来，就构成了一条轨迹。
 在强化学习中，智能体从一个初始状态开始，根据策略 $\pi_{\theta}$ 选择动作，然后环境根据状态转移规律产生下一个状态 $s_{t+1} \sim next\_state(s_t, a_t)$ 。这个过程不断重复，直到任务结束。
 整个交互过程可以表示为：
@@ -210,10 +210,10 @@ $$
 
 ![](\images\CS336_Assignment5\img12.png)
 
-### Rewards and return
+#### Rewards and return
 
 在强化学习中，奖励函数用于评价智能体在某个状态下采取的动作所产生的结果。通常写作：$r_t=r(s_t,a_t)$，表示当前动作获得的即时奖励。
-#### 数学问题中的奖励设计
+##### 数学问题中的奖励设计
 
 假设我们让模型回答一道数学题：
 
@@ -284,7 +284,7 @@ $J_{\theta} = \mathbb{E}_{\tau\sim\pi_{\theta}}[R(\tau)]$
 
 最关键的一点是：虽然奖励只在最终答案处产生，但优化目标是整条轨迹的期望回报，而生成轨迹的概率又由模型在每个时间步的 Token 概率共同决定。 因此，即使中间 Token 没有直接奖励，它们仍然可能通过策略梯度参与整个模型的优化。
 
-### Policy gradients
+#### Policy gradients
 前面我们已经定义了奖励、轨迹和期望回报，那么如何利用这个奖励信号，更新模型参数，让模型以后更有可能生成正确的回答？核心方法是策略梯度（Policy Gradient），这里介绍的是其中最基础的算法 REINFORCE。后续的 GRPO 就是在这一基础上进一步改进得到的。
 
 REINFORCE 的核心逻辑是：
@@ -351,7 +351,7 @@ $$
 $$
 \theta_{k+1}=\theta_k + \alpha \hat{g}
 $$
-### Baselines
+#### Baselines
 REINFORCE 虽然能够正确估计策略梯度，但梯度的方差可能很大，导致强化学习训练不稳定。通过在奖励中减去一个基线，可以在不改变梯度期望的前提下，改变梯度估计的方差。
 
 首先解释 REINFORCE 为什么会导致梯度的方差大。这里举一个比较极端的例子：
@@ -401,7 +401,7 @@ $$
 
 总结：Baseline 通过从奖励中减去一个与当前回答无关的参考值，在不改变策略梯度期望的前提下，重新分配不同样本的梯度权重，从而有机会降低训练中的梯度方差。
 
-### Baselines in GRPO
+#### Baselines in GRPO
 GRPO 的第一步是使用 Group Mean Baseline（组平均奖励基线）：
 $$
 \begin{aligned}
@@ -492,7 +492,7 @@ $$
 \end{aligned}
 $$
 GRPO 利用同一 Prompt 下的多个回答构造相对奖励信号；尽管组均值依赖采样回答，在独立采样等条件下，其期望梯度仍等于原始策略梯度乘以 $\frac{G-1}{G}$。
-#### Advantage normalization
+##### Advantage normalization
 在GRPO中，扣除组均值后的下一步调整，将是除以组标准差：
 $$
 \begin{aligned}
@@ -515,7 +515,7 @@ Advantage Normalization 通过将每组 Advantage 减去组内均值并除以组
 
 如果假设每个梯度向量都是独立同分布的高斯分布，那么除以组标准差可确保每个组的梯度更新在范数上大致相等。我们将在下一节中更深入地探讨优势归一化。
 
-#### Sequence normalization 
+##### Sequence normalization 
 GRPO 中还有另一个细节，似乎是继承自早期的 LLM-PPO 实现，称为序列归一化。回想一下，我们（到目前为止）的策略梯度估计器如下：
 $$
 \hat{g} = \frac{1}{BG} \sum_{i=1}^{B} \sum_{j=1}^{G} \frac{r(y^{(i,j)} \mid x^{(i)})-\mu_i}{std_i} \nabla_\theta \log \pi_\theta(y^{(i,j)} \mid x^{(i)})
@@ -563,7 +563,7 @@ $$
 
 在下一节中，我们将讨论这一选择，并进行消融实验以验证该修改是否合理。但目前，我们将仅实现原始论文中提出的标准 GRPO 算法，因此会包含序列归一化步骤。
 
-#### Putting everything together
+##### Putting everything together
 GRPO还有一个尚未提及的组成部分，即“截断重要性重新加权”（clipped importance reweighting）。Clipped Importance Reweighting 是为了解决 Off-policy RL 中使用过期样本的问题，我们将在本作业后面的部分讨论离策略强化学习（off-policy RL）时，再详细说明这一组成部分。在这里简单介绍一下什么是 on-policy RL、什么是 off-policy RL。
 - On-policy RL 的核心思想是：用当前模型生成的数据，更新当前的模型。
 	- 假设我们有一个语言模型 $\pi_\theta$。训练过程如下：
@@ -584,8 +584,8 @@ GRPO还有一个尚未提及的组成部分，即“截断重要性重新加权�
 在 Off-policy RL 中，后续更新时，训练数据与当前模型不再匹配，这些数据就变成了 Stale Samples（过期样本）。所以需要 Clipped Importance Reweighting，通过调整样本权重，并限制权重范围，帮助模型利用这些过期数据进行训练。
 
 ![](\images\CS336_Assignment5\img18.png)
-## Implementing on-policy GRPO
-### Using Hugging Face models
+### Implementing on-policy GRPO
+#### Using Hugging Face models
 在本次作业中，我们将直接使用 Hugging Face 的 transformers 库来加载预训练的基础模型。要加载 Hugging Face 模型和分词器（采用 bfloat16 格式并使用 FlashAttention-2 以节省内存），可以使用 cs336_alignment/checkpoint.py 中的以下示例代码：
 
 注：模型参数通常使用 FP32，这里使用的是 BF16。FP32：32bit，BF16：16bit，使用 BF16 可以减少模型权重占用的显存。eager：普通 Attention 实现。flash_attention_2：
@@ -622,7 +622,7 @@ logits = model(input_ids).logits
 ![](\images\CS336_Assignment5\img25.png)
 
 
-### Using vLLM in a reinforcement learning loop
+#### Using vLLM in a reinforcement learning loop
 （具体训练时，用于优化）
 这一部分主要是介绍在强化学习的训练循环中使用 vLLM 加速模型生成，并且在训练 GPU 和推理 GPU 之间同步模型权重。
 
@@ -634,7 +634,7 @@ logits = model(input_ids).logits
 
 ![](\images\CS336_Assignment5\img26.png)
 
-### GRPO components
+#### GRPO components
 ![](\images\CS336_Assignment5\img27.png)
 
 ![](\images\CS336_Assignment5\img28.png)
@@ -697,9 +697,9 @@ compute_policy_gradient_loss 将计算每个令牌和每个序列的损失项，
 ![](\images\CS336_Assignment5\img39.png)
 
 
-### GRPO training step
+#### GRPO training step
 这部分将前面的 GRPO 组件组合为完整的训练步骤
-#### Gradient accumulation
+##### Gradient accumulation
 为了在推理阶段实现良好的资源利用率，我们需要较大的 batch size 大小。因此，在 On-policy RL 中，由于我们将训练的 batch size 设为与推理的 batch size 相同，GPU 将没有足够的内存来一次性计算整个批次的梯度。因此，我们需要将批次拆分为一系列 Microbatch，并在这些 Microbatch 之间累积梯度。
 
 ![](\images\CS336_Assignment5\img40.png)
@@ -760,16 +760,16 @@ optimizer.zero_grad()
 ![](\images\CS336_Assignment5\img41.png)
 
 请注意，稍后当我们改用常数归一化（constant）代替序列归一化（sequence）时，微批次代码会略作调整，以适应不同的归一化方式。
-#### Implement the train step
+##### Implement the train step
 
 ![](\images\CS336_Assignment5\img42.png)
 
 测试出错，不知道问题在哪，先跳过
-## Experiments
+### Experiments
 之后补充
-# RL algorithm variants
+## RL algorithm variants
 
-## Dr. GRPO
+### Dr. GRPO
 在理解 GRPO 的推导过程后，我们可以发现，传统 GRPO 在计算 Policy Gradient 时引入了两种归一化操作：Advantage Standard Deviation Normalization（优势标准差归一化）和 Sequence Length Normalization（序列长度归一化）。这两种操作虽然有助于稳定训练，但也使梯度估计器不再具有原本期望的形式。针对这一问题，Dr. GRPO 提出了相应的改进方法，主要是取消这两种归一化操作。
 1. Length Normalization（序列长度归一化）
 	首先来看序列长度归一化。传统 GRPO 会将每条 sequence 的 loss 除以其实际长度，使不同长度的回答具有大致相同的总权重。这种方法的优点是避免长回答因为包含更多 token 而对训练产生过大的影响。但是，它也会导致短回答中每个 token 的权重更大，而长回答中每个 token 的权重更小，从而可能使模型过度关注短回答。
@@ -791,7 +791,7 @@ optimizer.zero_grad()
 ![](\images\CS336_Assignment5\img44.png)
 
 这部分代码之前就已经实现了。
-## Rejection fine tuning
+### Rejection fine tuning
 
 这一部分介绍的是另一种比 GRPO 更简单的强化学习训练方法：Rejection Fine-Tuning（RFT，拒绝法微调），也叫 Expert Iteration（EI，专家迭代）。这种方法不需要计算复杂的 policy gradient，也不需要对 reward 进行组内归一化，而是通过模型生成多个回答，筛选出正确的回答，再使用监督学习（SFT）训练模型，让模型更倾向于生成正确答案。
 
@@ -800,15 +800,15 @@ optimizer.zero_grad()
 ![](\images\CS336_Assignment5\img46.png)
 
 其中 Z 是一个常数归一化因子（类似于 Dr. GRPO）, $\mathbb{1}{r(y(i,j) | x(i)) = 1}$ 是一个仅保留正确答案的指示函数。
-## MaxRL
+### MaxRL
 最后，我们将探讨一种名为“最大似然强化学习”（Maximum Likelihood Reinforcement Learning，简称 MaxRL）的最新方法 。与 GRPO 中将优势值除以组标准差进行归一化，或 Dr. GRPO 中不进行任何归一化处理不同，MaxRL 提出将优势值除以组均值。这一选择得出了如下梯度估计量：
 $$
 \hat g= \frac{1}{\sum_{i=1}^{B} \sum_{j=1}^{G}len(y^{(i, j)}} \sum_{i=1}^{B} \sum_{j=1}^{G} \sum_{t=1}^{T_{ij}} \frac{r(y^{(i,j)}|x^{(i)})-\mu_i}{\mu_i} \nabla_\theta\log\pi_\theta(y_t^{(i,j)}|x^{(i)},y_{<t}^{(i,j)}) 
 $$
-# Off-policy RL
+## Off-policy RL
 前面实验使用的是 On-policy RL，即每生成一批训练数据，就进行一次模型更新，然后使用更新后的模型重新生成数据。这种方式能够保证训练数据来自当前策略，但需要频繁进行模型推理。下面我们介绍 Off-policy RL。
 Off-policy RL 允许对同一批生成数据进行多次训练更新，从而提高数据利用率，减少 Inference 的计算开销，并有可能加快训练速度。不过，随着模型不断更新，训练数据可能逐渐偏离当前策略，造成 Policy Mismatch 和训练不稳定，因此需要额外的机制来控制这种偏差。
-## Importance reweighting
+### Importance reweighting
 在 off-policy RL 中，由于我们使用旧策略生成的数据来训练当前策略，所以会产生误差。假设模型最初使用 $\pi_0$ 生成了一批回答。第一次更新之后，模型参数发生变化，当前策略变成了 $\pi_\theta$。此时，如果继续使用原来的回答进行训练，就出现了一个问题：这些回答是旧策略 $\pi_0$ 生成的，而我们真正想计算的是当前策略 $\pi_\theta$ 的 policy gradient。
 对于当前策略，理论上 policy gradient 的期望形式是：
 $$
@@ -886,8 +886,8 @@ $$
 单个 token 看起来只有 10% 的变化，但 100 个 token 连乘后，整条回答的重要性权重就已经非常大了。
 
 因此，朴素的 Off-policy estimator 虽然有偏，但没有额外的权重放大问题；完整 Importance Reweighting 虽然在理想条件下无偏，却可能具有很高的方差。后续方法的核心，就是在 Bias（偏差）和 Variance（方差）之间进行权衡，在提高数据利用率的同时保持训练稳定性。
-## PPO/GRPO-style importance reweighting and clipping
-### Token-level reweighting
+### PPO/GRPO-style importance reweighting and clipping
+#### Token-level reweighting
 上一节提到的 importance reweighting 方法是 sequence-level importance：
 $$
 \mathbb E_{x\sim\rho} \mathbb E_{y\sim\pi_0} \left[ r(y|x) \left( \prod_{t=1}^{T} \frac{\pi_\theta(y_t|x,y_{<t})} {\pi_0(y_t|x,y_{<t})} \right) \sum_{t=1}^{T} \nabla_\theta\log\pi_\theta(y_t|x,y_{<t}) \right]
@@ -1073,7 +1073,7 @@ $$
 这两种偏差都会随着当前策略 $\pi_\theta$ 与旧策略 $\pi_0$ 之间的差距增大而变得更加严重。
 
 Token-level Importance Reweighting 是一种在偏差和方差之间进行权衡的方法。它通过将整条回答的概率比值拆分为每个 token 独立的概率比值，降低了重要性权重随回答长度指数增长的风险，但也因此无法完整校正旧策略与当前策略之间的分布差异。PPO 和 GRPO 采用这种方法，体现的正是 Off-policy RL 中 Bias-Variance Tradeoff 的思想。
-### Clipping
+#### Clipping
 除了 token-level reweighting，PPO 和 GRPO 引入的另一个启发式方法是 importance weight clipping。如上所述，当 $\pi_\theta$ 和 $\pi_0$ 差距增大时，$\frac{\pi_\theta(y_t|y_{<t})}{\pi_0(y_t|y_{<t})}$增大，由于$\mathbb{E}_{y\sim\pi_0}[r(y) \sum_{t=1}^{L} \frac{\pi_\theta(y_t|y_{<t})}{\pi_0(y_t|y_{<t})}\nabla_\theta log\pi_\theta(y_t|y_{<t})]$，那么 importance reweighting 的方差可能变得很大，从而导致训练不稳定。因此，为了保证 Off-policy RL 的稳定性，我们需要通过 clipping 来确保 $\pi_\theta$ 始终保持在 $\pi_0$ 附近。
 
 近期论文对截断的具体实现方式存在分歧，但在本作业中，我们将实现 PPO 中的截断方法，该方法一直沿用至 GRPO，且似乎已成为主流做法。首先，将 token-level reweighting 与标准的 GRPO 目标函数相结合，可得到以下损失函数：
@@ -1289,7 +1289,7 @@ noclip 和 grpo 测试通过，失败是 gspo
 
 ![](\images\CS336_Assignment5\img51.png)
 
-## GSPO
+### GSPO
 为了改进 GRPO 中存在的偏差（前缀偏差和后缀偏差），提出了GSPO。
 GSPO 不采用 GRPO 中提出的 token-level，而是重新回到 sequence-level，但为了避免 ratio 相乘带来的高方差，使用了几何平均：
 $$
